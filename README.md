@@ -52,6 +52,139 @@ Everything is implemented in a **single monolithic module** — `riscv_processor
 
 ---
 
+## Testbench Overview
+
+The `test benches/` directory contains **12 testbench files** split into two groups: focused unit tests (`tb1`–`tb7`, `riscv_tb`, `riscv_testbench_1`) and larger combined testbenches (`TB_1`–`TB_3`) written alongside a coursework partner.
+
+---
+
+### Focused Unit Testbenches
+
+#### `riscv_tb.v` — Comprehensive Single-Pass Test
+The main catch-all testbench. Runs **12 sequential test tasks** in one shot covering the full RV32I instruction set:
+
+| # | Task | What it tests |
+|---|------|---------------|
+| 1 | Arithmetic | `ADD`, `SUB`, `ADDI` — basic integer ops |
+| 2 | Logical | `AND`, `OR`, `XOR`, `ANDI`, `ORI`, `XORI` |
+| 3 | Shifts | `SLL`, `SRL`, `SRA`, `SLLI`, `SRLI`, `SRAI` — including sign extension |
+| 4 | SLT | `SLT`, `SLTU`, `SLTI`, `SLTIU` — signed and unsigned comparisons |
+| 5 | Upper Imm | `LUI`, `AUIPC` — 20-bit immediate loading and PC-relative addressing |
+| 6 | Jumps | `JAL`, `JALR` — forward jumps and return address saving |
+| 7 | Branches | `BEQ`, `BNE`, `BLT`, `BGE` — taken and not-taken cases |
+| 8 | Load/Store | `LW`, `SW` — 32-bit word read/write roundtrip |
+| 9 | Byte/Half | `SB`, `SH`, `LB`, `LH`, `LBU`, `LHU` — sign and zero extension |
+| 10 | Loop | Backward branch loop — sum 1 to 5 = 15 |
+| 11 | Unsigned Branches | `BLTU`, `BGEU` — unsigned boundary comparison |
+| 12 | Negatives | Negative arithmetic — `-5 + (-3)`, `-5 - (-3)` |
+
+---
+
+#### `tb1_alu_arithmetic.v` — ALU Arithmetic Corner Cases
+**8 sub-tests** targeting edge cases of `ADD`, `SUB`, and `ADDI`:
+
+| Sub-test | What it tests |
+|----------|---------------|
+| 1a | Signed overflow: `0x7FFFFFFF + 1 = 0x80000000` |
+| 1b | Signed underflow: `0x80000000 - 1 = 0x7FFFFFFF` |
+| 1c | ADD with x0: result unchanged |
+| 1d | SUB to zero: `90 - 90 = 0` |
+| 1e | Chained ADDI: `10+20+30+40+50 = 150` |
+| 1f | x0 hardwired: writes to `x0` silently discarded |
+| 1g | Large negative ADDI: `10 + (-2048) = -2038` |
+| 1h | Self-subtraction: `x - x = 0` for any value |
+
+---
+
+#### `tb2_branch_stress.v` — Branch Instruction Stress Test
+**6 sub-tests** exhaustively testing all 6 branch types, including edge cases:
+
+| Sub-test | What it tests |
+|----------|---------------|
+| 1 | `BEQ` — taken (5==5) and not taken (5≠3) |
+| 2 | `BNE` — taken (10≠7) and not taken (10==10) |
+| 3 | `BLT` / `BGE` — with negative numbers (`-5 < 3`) |
+| 4 | `BLTU` / `BGEU` — unsigned boundary (`0` vs `0xFFFFFFFF`) |
+| 5 | Backward branch — countdown loop from 5 to 0 |
+| 6 | `BEQ x0, x0` — always-taken branch |
+
+---
+
+#### `tb3_load_store_variants.v` — Load/Store Width Variants
+**7 sub-tests** covering all load and store widths with sign/zero extension:
+
+| Sub-test | What it tests |
+|----------|---------------|
+| 1 | `SW` / `LW` roundtrip |
+| 2 | `LB` sign extension: `0x80` → `0xFFFFFF80` |
+| 3 | `LBU` zero extension: `0x80` → `0x00000080` |
+| 4 | `LH` sign extension: `0x8000` → `0xFFFF8000` |
+| 5 | `LHU` zero extension: `0x8000` → `0x00008000` |
+| 6 | `SB` + `SH` composite write, verified by `LW` |
+| 7 | Load into `x0` discarded — result stays 0 |
+
+---
+
+#### `tb4_shift_logic.v` — Shift and Logic Instructions
+Covers `SLL`, `SRL`, `SRA`, `SLLI`, `SRLI`, `SRAI`, `AND`, `OR`, `XOR` and their immediate variants. Tests both positive and negative operands to verify arithmetic vs. logical right shift behaviour.
+
+---
+
+#### `tb5_jump_link.v` — JAL / JALR and Link Register
+**5 sub-tests** focused on jump behaviour and return address correctness:
+
+| Sub-test | What it tests |
+|----------|---------------|
+| 1 | `JAL` saves `PC+4` as return address |
+| 2 | `JALR` with register + offset (`jalr x2, 8(x1)`) |
+| 3 | `JAL x0` — unconditional jump with no link |
+| 4 | Function call-and-return pattern using `jalr x0, 0(ra)` |
+| 5 | `JALR` clears the LSB of the target address per spec |
+
+---
+
+#### `tb6_upper_imm_slt.v` — LUI / AUIPC / SLT variants
+**7 sub-tests** covering upper-immediate instructions and all set-less-than forms:
+
+| Sub-test | What it tests |
+|----------|---------------|
+| 1 | `LUI` — loads 20-bit immediate into upper bits |
+| 2 | `LUI` + `ADDI` — constructs a full 32-bit constant (`0xDEADBEEF`) |
+| 3 | `AUIPC` — at three different PCs to verify PC-relative result |
+| 4 | `SLT` signed — `-5 < 3 = 1`, `3 < -5 = 0` |
+| 5 | `SLTU` unsigned — `1 < 0xFFFFFFFF`, `0xFFFFFFFF < 1` |
+| 6 | `SLTI` / `SLTIU` — immediate variants, 4 checks |
+| 7 | `LUI x0` — write to `x0` discarded |
+
+---
+
+#### `tb7_programs.v` — Full Program Integration Tests
+**5 realistic multi-instruction programs** that exercise the processor as a whole:
+
+| Program | What it runs |
+|---------|-------------|
+| Fibonacci | Computes `fib(10) = 55` using a loop |
+| Power of 2 | Computes `2^10 = 1024` by repeated doubling |
+| Array sum | Initializes `{10,20,30,40,50}` in memory, sums to 150 |
+| Memory copy | Copies 4 words from source to destination region |
+| Register stress | Loads `x1–x10 = 1–10`, sums all to `55` across 9 `ADD` instructions |
+
+---
+
+### Combined Testbenches (`TB_1`, `TB_2`, `TB_3`)
+
+These are larger testbenches written collaboratively, each running a complete suite against the processor:
+
+| File | Tests | Coverage |
+|------|-------|---------|
+| `TB_1.v` | 23 individual tests | Full RV32I: all R/I/S/B/U/J instructions, loops, load/store patterns, `x0` invariant |
+| `TB_2.v` | Extended coverage | Additional load/store, branch, and `LUI`/`AUIPC` edge cases |
+| `TB_3.v` | Comprehensive stress | Largest suite — includes long programs, chained operations, and boundary values |
+
+> `TB_1`, `TB_2`, and `TB_3` are self-contained and do not depend on `tb1`–`tb7`.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
